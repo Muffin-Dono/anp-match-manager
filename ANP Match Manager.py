@@ -1,7 +1,7 @@
 
 # This is the ANP Match Manager bot for Discord which helps players pick/ban maps for a match
 # It has been written specifically for Summer Skirmish 2025 - map selection process may differ to other tournaments
-# Future - allow mirror matches
+# Future - allow mirror matches?
 
 import os
 import discord
@@ -25,13 +25,15 @@ intents.message_content = True  # This is required for reading message content
 # Define "!" as a command prefix
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# List of Discord roles and corresponding team names (and their aliases) for team selection
+# List of Discord roles and corresponding team names (and their aliases) for team selection (Summer Skirmish 2025)
 TEAM_ROLES = {"[BONK] Bonkurazu": ["BONK", "Bonkurazu"], 
-              "[._o<] DuctTales": ["._o<", "Duck", "Duct"],
+              "._o< | DuctTales": ["._o<", "Duck", "Duct"],
               "[EQ] Equinox": ["EQ", "Equinox"],
               "[KOBA] KOBAYASHI CLAN": ["KOBA", "KOBAYASHI", "KOBAYASHI CLAN"],
               "[SAA] SHOCK AND AWE": ["SAA", "SHOCK AND AWE"],
-              "[-SLI-] Slightly Less Incompetent": ["SLI", "Slightly Less Incompetent"]}
+              "=-SLI-= Slightly Less Incompetent": ["SLI", "Slightly Less Incompetent"],
+              "[11:59] They Will Eat Earl's Dust": ["11:59", "They Will Eat Earl's Dust", "TWEED"]
+              }
 
 # Function to resolve map name (checks map names and aliases)
 def resolve_map_name(map_name):
@@ -180,6 +182,17 @@ async def match_team2_autocomplete(
         for opt in options if current.lower() in opt
     ]
 
+@match_command.autocomplete('pool')
+async def match_pool_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[discord.app_commands.Choice[str]]:
+    options = ["ss25", "ww25"]
+    return [
+        discord.app_commands.Choice(name=opt, value=opt)
+        for opt in options if current.lower() in opt
+    ]
+
 # Command for the coin toss winner to pick the ban order
 @bot.tree.command(name='order', description='Choose whether your team bans first or second.')
 @discord.app_commands.describe(choice="First/Second")
@@ -234,6 +247,7 @@ async def order_autocomplete(
 async def map_ban_command(interaction: discord.Interaction, map: str):
     global selection_state
 
+    # Validate the ban order
     if not selection_state["ban_order"]:
         await interaction.response.send_message("The ban order hasn't been decided yet! Use `/order` to decide the ban order.", ephemeral=True)
         return
@@ -243,17 +257,17 @@ async def map_ban_command(interaction: discord.Interaction, map: str):
     
     elif selection_state["bans"]["team1"] and not selection_state["bans"]["team2"] and selection_state["teams"]["team1"] == selection_state["ban_order"][0]:
         banning_team = selection_state["ban_order"][1]
+
+    # Allow only the current team to ban
+    elif not user_is_on_team(interaction.user, banning_team) and not has_admin_privileges(interaction.user):
+        await interaction.response.send_message(f"Only {banning_team} can ban right now.", ephemeral=True)
+        return
     
     else:
         await interaction.response.send_message("You cannot ban any more maps.", ephemeral=True)
         return
 
     banning_team_key = "team1" if banning_team == selection_state["teams"]["team1"] else "team2"
-
-    # Allow only the current team to ban
-    if not user_is_on_team(interaction.user, banning_team) and not has_admin_privileges(interaction.user):
-        await interaction.response.send_message(f"Only {banning_team} can ban right now.", ephemeral=True)
-        return
     
     if selection_state["bans"][banning_team_key]:
         await interaction.response.send_message(f"{banning_team} has already banned a map!", ephemeral=True)
@@ -273,7 +287,7 @@ async def map_ban_command(interaction: discord.Interaction, map: str):
         next_team = selection_state["ban_order"][1] if banning_team == selection_state["ban_order"][0] else selection_state["ban_order"][0]
         await interaction.response.send_message(
             f"{banning_team} has banned: **{banned_map}**\n\n"
-            f"{next_team}, please ban a map using `/map_ban`.")
+            f"**{next_team}**, please ban a map using `/map_ban`.")
     
     elif all(selection_state["bans"].values()):
         picking_team = selection_state["ban_order"][1]
@@ -346,7 +360,7 @@ async def map_pick_command(interaction: discord.Interaction, map: str):
         next_team = selection_state["ban_order"][0] if picking_team == selection_state["ban_order"][1] else selection_state["ban_order"][1]
         await interaction.response.send_message(
             f"{picking_team} has picked: **{picked_map}**\n\n"
-            f"{next_team}, please pick a map using `/map_pick`.")
+            f"**{next_team}**, please pick a map using `/map_pick`.")
         
     if all(selection_state["picks"].values()):
         await interaction.response.send_message(
