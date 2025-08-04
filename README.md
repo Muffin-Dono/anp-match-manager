@@ -22,7 +22,6 @@ The map selection process is as follows:
 - `/map_final` Select either "Standard" or "Wildcard" to randomly select the final map from either of these map pools.
 
 ## Future Developments
-- [ ] Allow easy access to clan tags and team names without clan tag (Check against role IDs instead of string?)
 - [ ] Replace nested dictionaries with classes
 - [ ] Allow teams to schedule a datetime for their matchup
     - May need to introduce feature to edit times if teams change their minds
