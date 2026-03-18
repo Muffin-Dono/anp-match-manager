@@ -1,11 +1,14 @@
-import os
-import discord
-import random
-import logging
-import importlib
 import asyncio
-from discord.ext import commands
+import importlib
+import logging
+import os
+import pkgutil
+import random
+from datetime import datetime
+
 from dotenv import load_dotenv
+import discord
+from discord.ext import commands
 
 # Load environment variables including discord token and server ID(s)
 load_dotenv()
@@ -22,52 +25,24 @@ intents.message_content = True
 # Define "!" as a command prefix
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# List of Discord roles and corresponding team names/aliases for team selection (Summer Skirmish 2025)
-TEAM_ROLES = {
-    "[BONK] Bonkurazu": {
-        "id": 915003320081473576,
-        "tag": "BONK",
-        "name": "Bonkurazu"
-    }, 
-    "._o< | DuctTales": {
-        "id": 1386762664990212166,
-        "tag": "._o<",
-         "name": "DuctTales",
-    },
-    "[EQ] Equinox": {
-        "id": 1386760980029112520,
-        "tag": "EQ",
-        "name": "Equinox"
-    },
-    "[KOBA] KOBAYASHI CLAN": {
-        "id": 1135193320155525171,
-        "tag": "KOBA",
-        "name": "KOBAYASHI CLAN"
-    },
-    "[SAA] SHOCK AND AWE": {
-        "id": 1386763196496609451,
-        "tag": "SAA",
-        "name": "SHOCK AND AWE"
-    },
-    "=-SLI-= Slightly Less Incompetent": {
-        "id": 1396589635936849920,
-        "tag": "SLI",
-        "name": "Slightly Less Incompetent"
-    },
-    "[11:59] They Will Eat Earl's Dust": {
-        "id": 1396589916695040093,
-        "tag": "11:59",
-        "name": "They Will Eat Earl's Dust"
-    }
-}
+# Import the tournament modules and sort by start date
+modules_with_dates = []
+
+for _, name, _ in pkgutil.iter_modules(["tournaments"]):
+    module = importlib.import_module(f"{"tournaments"}.{name}")
+
+    # Parse the date string
+    start_date_str = module.SETTINGS['start_date']
+    start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+    modules_with_dates.append((name, start_date))
+
+tournaments = sorted(modules_with_dates, key=lambda x: x[1], reverse=True)
 
 # Initialize global state dictionary for map selection
 state_handler = {}
 timeout_tasks = {}  # Track per-channel timeout tasks
 
 # Set up the timeout logic for the bot
-
-# Timeout counter in seconds
 TIMEOUT_DURATION = 72*60*60  # 72 hours
 TIMEOUT_NOTICE = 12*60*60 # 12 hours
 
@@ -131,6 +106,7 @@ def resolve_map_name(map_name):
                 return official_name
     return None
 
+# Function to get base name for map
 def get_base_name(team_pick):
     base_names = MAP_POOL[team_pick]['base_name']
     if base_names:
@@ -153,6 +129,7 @@ def resolve_team_name(team_name):
             return full_name
     return None
 
+# Function to get team name without clan tag
 def trim_team_name(team_name: str) -> str | None:
     team_data = TEAM_ROLES.get(team_name)
     return team_data["name"] if team_data else None
@@ -178,7 +155,7 @@ async def on_ready():
 # Command to clear the selection state
 @bot.tree.command(name="clear", description="Clears the map selection state", guild=discord.Object(id=server))
 async def clear_command(interaction: discord.Interaction):
-    selection_state = get_state(interaction.channel_id)
+    get_state(interaction.channel_id)
 
     state_handler.pop(interaction.channel_id, None)
     await clear_timeout(interaction.channel_id)
@@ -193,33 +170,37 @@ async def help_command(interaction: discord.Interaction):
         "- `/help` Displays this list of available commands.\n"
         "- `/clear` Clears the bot and resets the map selection process.\n"
         "- `/match` Begin map selection by inputting two teams and initiate the coin toss.\n"
-        "- `/order` Select either \"First\" or \"Second\" to decide your team's ban order.\n"
+        "- `/order` Select either \"BAN first, PICK second\" or \"BAN second, PICK first\" to decide your team's ban order.\n"
         "- `/map_ban` Select a map to ban from the remaining Standard map pool.\n"
         "- `/map_pick` Select a map to pick from the remaining __Standard__ map pool or **INVOKE WILDCARD**. Invoking the wildcard will randomly select a map from the remaining __Wildcard__ map pool.\n"
-        "- `/map_final` Select either \"Standard\" or \"Wildcard\" to randomly select the final map from either of these map pools.\n")
+        "- `/map_final` Select either \"Standard\" or \"Wildcard\" to randomly select the final map from either of these map pools.\n\n"
+        "**The bot can load other tournaments besides those listed by the** `/match` **command**.\n"
+        "Simply input its name (e.g. \"WW25\") when using the command.")
 
 # Command to start map selection, with team assignment and coin toss
-@bot.tree.command(name="match", description="Sets the opposing teams and map pool (optional) for a tournament match", guild=discord.Object(id=server))
-@discord.app_commands.describe(team1="Name of team 1", team2="Name of team 2", pool="Name of map pool you want to select from")
-async def match_command(interaction: discord.Interaction, team1: str, team2: str, pool: str = "SS25"):
+@bot.tree.command(name="match", description="Sets the tournament and opposing teams for a match", guild=discord.Object(id=server))
+@discord.app_commands.describe(pool="Name of map pool you want to select from", team1="Name of team 1", team2="Name of team 2")
+async def match_command(interaction: discord.Interaction, pool: str, team1: str, team2: str):
     selection_state = get_state(interaction.channel_id)
-    
-    resolved_team1 = resolve_team_name(team1)
-    resolved_team2 = resolve_team_name(team2)
-    
+
     # Dynamically import dictionary of map pool based on user input
     try:
-        tournament = importlib.import_module(pool.lower())
+        tournament = importlib.import_module(f"tournaments.{pool.lower()}")
         global MAP_POOL
         MAP_POOL = tournament.MAP_POOL
+        global TEAM_ROLES
+        TEAM_ROLES = tournament.TEAM_ROLES
     except ImportError:
         await interaction.response.send_message(
             f"ImportError: Could not import the map pool: {pool}.", ephemeral=True)
         return
     except AttributeError:
         await interaction.response.send_message(
-            f"AttributeError: Does not contain a valid map pool.", ephemeral=True)
+            "AttributeError: Does not contain a valid map pool.", ephemeral=True)
         return
+
+    resolved_team1 = resolve_team_name(team1)
+    resolved_team2 = resolve_team_name(team2)
 
     if not has_admin_privileges(interaction.user):
         member_roles = [role.name for role in interaction.user.roles]
@@ -230,7 +211,7 @@ async def match_command(interaction: discord.Interaction, team1: str, team2: str
                 if any(alias.lower() in role_name.lower() for alias in [team, aliases["tag"], aliases["name"]]):
                     user_teams.append(team)
                     break
-        
+
         if resolved_team1 not in user_teams and resolved_team2 not in user_teams and "Mixed Team" not in [resolved_team1, resolved_team2]:
             await interaction.response.send_message(
                 "You must belong to one of the selected teams. Otherwise, pick \"Mixed Team\".", ephemeral=True)
@@ -240,10 +221,11 @@ async def match_command(interaction: discord.Interaction, team1: str, team2: str
         await interaction.response.send_message(
             "Team names are not recognized.", ephemeral=True)
         return
-    
+
     if resolved_team1 == resolved_team2:
-        resolved_team1 = resolved_team1 + " A"
-        resolved_team2 = resolved_team2 + " B"
+        await interaction.response.send_message(
+            "Mirror matches are not supported", ephemeral=True)
+        return
 
     await interaction.response.defer()
 
@@ -256,17 +238,36 @@ async def match_command(interaction: discord.Interaction, team1: str, team2: str
     selection_state["remaining_maps"] = MAP_POOL.copy()
     selection_state["final_map_pool"] = {"team1": None, "team2": None}
     selection_state["random_map"] = None
-    
+
     # Announce coin toss winner
     selection_state["coin_toss_winner"] = random.choice([resolved_team1, resolved_team2])
+
+    if resolved_team1 == resolved_team2:
+        coin_toss_winner = selection_state["coin_toss_winner"]
+    else:
+        coin_toss_winner = trim_team_name(selection_state['coin_toss_winner'])
+
     await interaction.followup.send(
         f"**{resolved_team1}** vs **{resolved_team2}**\n\n"
         f"Map selection started! The map pool will be **{pool}**.\n"
         f"Performing a coin toss to determine which team decides the ban order...\n\n"
-        f"**{trim_team_name(selection_state['coin_toss_winner'])}** wins the coin toss! Pick your team's ban/pick order using `/order`")
-    
+        f"**{coin_toss_winner}** wins the coin toss! Pick your team's ban/pick order using `/order`")
+
     # Restarts the timeout counter when a command is used on time
     reset_timeout_counter(interaction.channel_id, interaction)
+
+# Show user choice of tournaments
+@match_command.autocomplete('pool')
+async def match_pool_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[discord.app_commands.Choice[str]]:
+
+    options = [name.upper() for name, start_date in tournaments][:2]
+    return [
+        discord.app_commands.Choice(name=opt, value=opt)
+        for opt in options if current.lower() in opt
+    ]
 
 # Show user choice of teams
 @match_command.autocomplete('team1')
@@ -274,7 +275,9 @@ async def match_team1_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
-    selection_state = get_state(interaction.channel_id)
+
+    tournament = importlib.import_module(interaction.namespace.pool.lower())
+    TEAM_ROLES = tournament.TEAM_ROLES
 
     options = ["Mixed Team"] + list(TEAM_ROLES.keys())
     return [
@@ -287,22 +290,11 @@ async def match_team2_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
-    selection_state = get_state(interaction.channel_id)
+
+    tournament = importlib.import_module(interaction.namespace.pool.lower())
+    TEAM_ROLES = tournament.TEAM_ROLES
 
     options = ["Mixed Team"] + list(TEAM_ROLES.keys())
-    return [
-        discord.app_commands.Choice(name=opt, value=opt)
-        for opt in options if current.lower() in opt
-    ]
-
-@match_command.autocomplete('pool')
-async def match_pool_autocomplete(
-    interaction: discord.Interaction,
-    current: str,
-) -> list[discord.app_commands.Choice[str]]:
-    selection_state = get_state(interaction.channel_id)
-
-    options = ["SS25", "WW25"]
     return [
         discord.app_commands.Choice(name=opt, value=opt)
         for opt in options if current.lower() in opt
@@ -333,7 +325,7 @@ async def order_command(interaction: discord.Interaction, choice: str):
             f"Only a member of **{trim_team_name(selection_state['coin_toss_winner'])}** can decide the ban/pick order.",
             ephemeral=True)
         return
-    
+
     if choice not in ["BAN first, PICK second", "BAN second, PICK first"]:
         await interaction.response.send_message(
             "Please choose one of the given options.", ephemeral=True)
@@ -357,8 +349,7 @@ async def order_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
-    selection_state = get_state(interaction.channel_id)
-    
+
     options = ["BAN first, PICK second", "BAN second, PICK first"]
     return [
         discord.app_commands.Choice(name=opt, value=opt)
@@ -379,7 +370,7 @@ async def map_ban_command(interaction: discord.Interaction, map: str):
         await interaction.response.send_message(
             "The ban order hasn't been decided yet! Use `/order` to decide the ban order.", ephemeral=True)
         return
-    
+
     first_to_ban = selection_state["ban_order"][0]
     second_to_ban = selection_state["ban_order"][1]
 
@@ -391,18 +382,24 @@ async def map_ban_command(interaction: discord.Interaction, map: str):
 
     if not team1_ban and not team2_ban:
         banning_team = first_to_ban
-    
-    elif team1_ban and not team2_ban:
-        banning_team = second_to_ban if team1 == first_to_ban else first_to_ban
-    
-    elif not team1_ban and team2_ban:
-        banning_team = first_to_ban if team1 == first_to_ban else second_to_ban
+
+    # Checks if the correct team has banned first and resets the ban phase if not
+    elif (not team1_ban and team2_ban and team1 == first_to_ban) or (team1_ban and not team2_ban and team2 == first_to_ban):
+        selection_state["bans"] = {"team1": None, "team2": None}
+        selection_state["remaining_maps"] = MAP_POOL.copy()
+        await interaction.response.send_message(
+            "Illegal selection state detected. Resetting ban phase.\n\n"
+            f"**{trim_team_name(selection_state['ban_order'][0])}**, please ban a map using `/map_ban`.")
+        return
+
+    elif (team1_ban and not team2_ban) or (not team1_ban and team2_ban):
+        banning_team = second_to_ban
 
     if banning_team is None:
         await interaction.response.send_message(
             "You cannot ban any more maps.", ephemeral=True)
         return
-    
+
     # Allow only the current team to ban
     if not user_is_on_team(interaction.user, banning_team) and not has_admin_privileges(interaction.user):
         await interaction.response.send_message(
@@ -410,7 +407,7 @@ async def map_ban_command(interaction: discord.Interaction, map: str):
         return
 
     banning_team_key = "team1" if banning_team == team1 else "team2"
-    
+
     if selection_state["bans"][banning_team_key]:
         await interaction.response.send_message(
             f"{trim_team_name(banning_team)} has already banned a map!", ephemeral=True)
@@ -426,20 +423,20 @@ async def map_ban_command(interaction: discord.Interaction, map: str):
 
     selection_state["bans"][f"{banning_team_key}"] = banned_map
     selection_state["remaining_maps"].pop(banned_map)
-    
+
     if not all(selection_state["bans"].values()):
         next_team = second_to_ban if banning_team == first_to_ban else first_to_ban
         await interaction.response.send_message(
             f"{trim_team_name(banning_team)} has banned: **{banned_map}**\n\n"
             f"**{trim_team_name(next_team)}**, please ban a map using `/map_ban`.")
-    
+
     elif all(selection_state["bans"].values()):
         picking_team = second_to_ban
         await interaction.response.send_message(
             f"{trim_team_name(banning_team)} has banned: **{banned_map}**\n\n"
             "Banning phase complete!\n\n"
             f"**{trim_team_name(picking_team)}**, please begin picking phase by using `/map_pick`.")
-    
+
     # Restarts the timeout counter when a command is used on time
     reset_timeout_counter(interaction.channel_id, interaction)
 
@@ -470,13 +467,10 @@ async def map_pick_command(interaction: discord.Interaction, map: str):
         await interaction.response.send_message(
             "Teams must complete the banning phase first.", ephemeral=True)
         return
-    
+
     first_to_ban = selection_state["ban_order"][0]
     second_to_ban = selection_state["ban_order"][1]
 
-    team1_ban = selection_state["bans"]["team1"]
-    team2_ban = selection_state["bans"]["team2"]
-    
     # If a map hasn't been picked yet by either team, the team that banned second will pick a map first
     # Determine who picks first
     if not any(selection_state["picks"].values()):
@@ -491,11 +485,11 @@ async def map_pick_command(interaction: discord.Interaction, map: str):
         return
 
     team_key = "team1" if picking_team == team1 else "team2"
-    
+
     if "INVOKE WILDCARD" in map:
-        
+
         wildcard_maps = [map_key for map_key, map_info in selection_state["remaining_maps"].items() if map_info["map_pool"] == "Wildcard"]
-        
+
         if not wildcard_maps:
             await interaction.response.send_message(
                 "No Wildcard maps remaining in the map pool, please enter a different map.", ephemeral=True)
@@ -509,7 +503,7 @@ async def map_pick_command(interaction: discord.Interaction, map: str):
         picked_map = resolve_map_name(map)
         standard_maps = [map_key for map_key, map_info in selection_state["remaining_maps"].items() if map_info["map_pool"] == "Standard"]
         added_text = "picked"
-        
+
         if picked_map not in standard_maps:
             await interaction.response.send_message(
                 "Please choose a remaining map from the pool:\n" + "\n".join([f"- {map}" for map in standard_maps] + ["- INVOKE WILDCARD"]))
@@ -531,7 +525,7 @@ async def map_pick_command(interaction: discord.Interaction, map: str):
         await interaction.response.send_message(
             f"{trim_team_name(picking_team)} has {added_text}: **{picked_map}**\n\n"
             f"**{trim_team_name(next_team)}**, please pick a map using `/map_pick`.")
-        
+
     if all(selection_state["picks"].values()):
         await interaction.response.send_message(
             f"{trim_team_name(picking_team)} has {added_text}: **{picked_map}**\n\n"
@@ -540,7 +534,7 @@ async def map_pick_command(interaction: discord.Interaction, map: str):
             "The final map will be randomly selected from either the Standard or Wildcard map pool.\n\n"
             f"**{trim_team_name(team1)}** and **{trim_team_name(team2)}** can finalize the map selection process by using `/map_final`.\n\n"
             "-# To invoke the Wildcard, both teams must agree. Otherwise, the selection will default to the Standard map pool.")
-    
+
     # Restarts the timeout counter when a command is used on time
     reset_timeout_counter(interaction.channel_id, interaction)
 
@@ -560,8 +554,8 @@ async def map_pick_autocomplete(
 
 # Command for picking maps
 @bot.tree.command(name="map_final", description='Choose whether the final map is from the Standard or Wildcard map pool', guild=discord.Object(id=server))
-@discord.app_commands.describe(choice="Standard/Wildcard")
-async def map_final_command(interaction: discord.Interaction, choice: str):
+@discord.app_commands.describe(choice="Standard/Wildcard", override="Organizers can override the final map pool of choice")
+async def map_final_command(interaction: discord.Interaction, choice: str, override: str = "No"):
     selection_state = get_state(interaction.channel_id)
 
     team1 = selection_state["teams"]["team1"]
@@ -569,44 +563,54 @@ async def map_final_command(interaction: discord.Interaction, choice: str):
 
     # Allow only the opposing teams to use the command
     if not(
+        has_admin_privileges(interaction.user) or
         user_is_on_team(interaction.user, team1) or
         user_is_on_team(interaction.user, team2)
-    ) and not has_admin_privileges(interaction.user):
+    ):
         await interaction.response.send_message(
             "You must belong to one of the opposing teams.", ephemeral=True)
         return
-    
+
+    if not has_admin_privileges(interaction.user) and override == "Yes":
+        await interaction.response.send_message(
+            "Only organizers can override this phase!", ephemeral=True)
+        return
+
     if not all(selection_state["bans"].values()):
         await interaction.response.send_message(
             "Teams must complete the banning phase first.", ephemeral=True)
         return
-    
+
     first_to_ban = selection_state["ban_order"][0]
     second_to_ban = selection_state["ban_order"][1]
 
     team1_ban = selection_state["bans"]["team1"]
     team2_ban = selection_state["bans"]["team2"]
-    
+
     if not all(selection_state["picks"].values()):
         await interaction.response.send_message(
             "Teams must complete the picking phase first.", ephemeral=True)
         return
-    
+
     team1_pick = selection_state["picks"]["team1"]
     team2_pick = selection_state["picks"]["team2"]
-    
+
     choice = choice.capitalize()
-    
+
     if choice not in ["Standard", "Wildcard"]:
         await interaction.response.send_message(
             "Please choose either 'Standard' or 'Wildcard'.", ephemeral=True)
         return
-    
+
     # Assign the selected choice of map pool to each team
-    choosing_team_key = "team1" if user_is_on_team(interaction.user, team1) else "team2"
-    non_choosing_team_key = "team2" if user_is_on_team(interaction.user, team1) else "team1"
-    selection_state["final_map_pool"][choosing_team_key] = choice
-    
+    if has_admin_privileges(interaction.user) and override == "Yes":
+        selection_state["final_map_pool"]["team1"] = choice
+        selection_state["final_map_pool"]["team2"] = choice
+    else:
+        choosing_team_key = "team1" if user_is_on_team(interaction.user, team1) else "team2"
+        non_choosing_team_key = "team2" if user_is_on_team(interaction.user, team1) else "team1"
+        selection_state["final_map_pool"][choosing_team_key] = choice
+
     if selection_state["final_map_pool"]["team1"] and selection_state["final_map_pool"]["team2"]:
 
         agreed_pool = "Wildcard" if selection_state["final_map_pool"]["team1"] == selection_state["final_map_pool"]["team2"] == "Wildcard" else "Standard"
@@ -616,19 +620,19 @@ async def map_final_command(interaction: discord.Interaction, choice: str):
             map_key for map_key, map_info in selection_state["remaining_maps"].items()
             if map_info["map_pool"] == agreed_pool
             ]
-        
+
         if not final_maps:
             await interaction.response.send_message(
                 f"No maps left in the {agreed_pool} map pool to choose from!", ephemeral=True)
             return
-    
+
         selection_state["random_map"] = random.choice(final_maps)
 
         await interaction.response.send_message(
             f"The final map will be from the __{agreed_pool}__ map pool!\n"
             f"Randomly selecting the final map...\n\n"
             f"The final map is: **{selection_state['random_map']}**")
-        
+
         # Confirm match details in an embed
         embed = discord.Embed(
         title=f"{team1} vs {team2}",
@@ -646,7 +650,7 @@ async def map_final_command(interaction: discord.Interaction, choice: str):
             f"2. {second_map}\n"
             f"3. {third_map}"
             )
-        
+
         embed_teams = (
             f"1. {trim_team_name(second_to_ban)}\n"
             f"2. {trim_team_name(first_to_ban)}\n"
@@ -654,7 +658,7 @@ async def map_final_command(interaction: discord.Interaction, choice: str):
             )
 
         embed.add_field(name="\u00AD", value="\u00AD", inline=False)
-        
+
         embed.add_field(name="Maps", value=embed_maps, inline=True)
         embed.add_field(name="Picked by", value=embed_teams, inline=True)
 
@@ -672,19 +676,31 @@ async def map_final_command(interaction: discord.Interaction, choice: str):
         await interaction.response.send_message(
             f"{trim_team_name(selection_state['teams'][choosing_team_key])} wants to play a map from the __{choice}__ map pool.\n\n"
             f"Waiting for **{trim_team_name(selection_state['teams'][non_choosing_team_key])}** to submit their preference using `/map_final`.")
-    
+
     # Restarts the timeout counter when a command is used on time
     reset_timeout_counter(interaction.channel_id, interaction)
 
 # Show user the choice of maps to pick
 @map_final_command.autocomplete('choice')
-async def map_final_autocomplete(
+async def map_final_choice_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
-    selection_state = get_state(interaction.channel_id)
-    
+
     options = ["Standard","Wildcard"]
+    return [
+        discord.app_commands.Choice(name=opt, value=opt)
+        for opt in options if current.lower() in opt
+    ]
+
+# Show user the two options (Yes or No)
+@map_final_command.autocomplete('override')
+async def map_final_override_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[discord.app_commands.Choice[str]]:
+
+    options = ["Yes","No"]
     return [
         discord.app_commands.Choice(name=opt, value=opt)
         for opt in options if current.lower() in opt
