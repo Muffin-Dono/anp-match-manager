@@ -40,7 +40,8 @@ To host the **ANP Match Manager** bot yourself, follow these steps:
 ---
 
 ## Future Developments
-- [x] Dynamic ban/pick format for different tournaments
+- [x] Skip redundant commands for single-map-pool tournaments
+- [ ] Dynamic ban/pick format for different tournaments
 - [ ] Add views (buttons, dropdowns)
 
 ### Bikeshedding
