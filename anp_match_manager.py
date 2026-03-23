@@ -165,17 +165,29 @@ async def clear_command(interaction: discord.Interaction):
 # Command to print commands for bot
 @bot.tree.command(name="help", description="List all available commands", guild=discord.Object(id=server))
 async def help_command(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "## Useful commands\n"
-        "- `/help` Displays this list of available commands.\n"
-        "- `/clear` Clears the bot and resets the map selection process.\n"
-        "- `/match` Begin map selection by inputting two teams and initiate the coin toss.\n"
-        "- `/order` Select either \"BAN first, PICK second\" or \"BAN second, PICK first\" to decide your team's ban order.\n"
-        "- `/map_ban` Select a map to ban from the remaining Standard map pool.\n"
-        "- `/map_pick` Select a map to pick from the remaining __Standard__ map pool or **INVOKE WILDCARD**. Invoking the wildcard will randomly select a map from the remaining __Wildcard__ map pool.\n"
-        "- `/map_final` Select either \"Standard\" or \"Wildcard\" to randomly select the final map from either of these map pools.\n\n"
-        "**The bot can load other tournaments besides those listed by the** `/match` **command**.\n"
+    tourney_embed = discord.Embed(title="**Useful Commands**", color=0x2F3136)
+
+    tourney_embed_field1 = (
+        "- **`/help`** - Displays this list of available commands.\n"
+        "- **`/clear`** - Clears the bot and resets the map selection process.")
+    tourney_embed.add_field(name="", value=tourney_embed_field1, inline=False)
+    tourney_embed.add_field(name="\u00AD", value="\u00AD", inline=False)
+
+    tourney_embed_field2 = (
+        "**Tournament Map Selection**\n"
+        "1. **`/match`** - Begin map selection by inputting two teams and initiate the coin toss.\n"
+        "2. **`/order`** - Decide your team's pick and ban order.\n"
+        "3. **`/map_ban`** - Select a map to ban from the map pool.\n"
+        "4. **`/map_pick`** - Select a map to pick from the map pool. In some tournaments, you can also select from a wildcard map pool.\n"
+        "5. **`/map_final`** - Randomly select the final map from the map pool of choice.\n\n"
+        "**The bot can load other tournaments not listed by the `/match` command**.\n"
         "Simply input its name (e.g. \"WW25\") when using the command.")
+    tourney_embed.add_field(name="", value=tourney_embed_field2, inline=False)
+    tourney_embed.add_field(name="\u00AD", value="\u00AD", inline=False)
+
+    tourney_embed.set_footer(text="Created by Muffin-Dono")
+
+    await interaction.response.send_message(embed=tourney_embed)
 
 # Command to start map selection, with team assignment and coin toss
 @bot.tree.command(name="match", description="Sets the tournament and opposing teams for a match", guild=discord.Object(id=server))
@@ -227,8 +239,6 @@ async def match_command(interaction: discord.Interaction, pool: str, team1: str,
             "Mirror matches are not supported", ephemeral=True)
         return
 
-    await interaction.response.defer()
-
     # Initialize selection state with assigned teams
     selection_state["teams"] = {"team1": resolved_team1, "team2": resolved_team2}
     selection_state["coin_toss_winner"] = None
@@ -247,11 +257,20 @@ async def match_command(interaction: discord.Interaction, pool: str, team1: str,
     else:
         coin_toss_winner = trim_team_name(selection_state['coin_toss_winner'])
 
-    await interaction.followup.send(
+    await interaction.response.send_message(
         f"**{resolved_team1}** vs **{resolved_team2}**\n\n"
         f"Map selection started! The map pool will be **{pool}**.\n"
         f"Performing a coin toss to determine which team decides the ban order...\n\n"
         f"**{coin_toss_winner}** wins the coin toss! Pick your team's ban/pick order using `/order`")
+    
+    server_roles = await interaction.guild.fetch_roles()
+    role_names = [r.name for r in server_roles]
+    missing_roles = [name for name in TEAM_ROLES.keys() if name not in role_names]
+    
+    if missing_roles:
+        await interaction.followup.send(
+            "**WARNING: The following team roles are missing from your server:**\n- "
+            + "\n- ".join(missing_roles))
 
     # Restarts the timeout counter when a command is used on time
     reset_timeout_counter(interaction.channel_id, interaction)
@@ -276,10 +295,10 @@ async def match_team1_autocomplete(
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
 
-    tournament = importlib.import_module(interaction.namespace.pool.lower())
+    tournament = importlib.import_module(f"tournaments.{interaction.namespace.pool.lower()}")
     TEAM_ROLES = tournament.TEAM_ROLES
 
-    options = ["Mixed Team"] + list(TEAM_ROLES.keys())
+    options = list(TEAM_ROLES.keys()) + ["Mixed Team"]
     return [
         discord.app_commands.Choice(name=opt, value=opt)
         for opt in options if current.lower() in opt
@@ -291,10 +310,10 @@ async def match_team2_autocomplete(
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
 
-    tournament = importlib.import_module(interaction.namespace.pool.lower())
+    tournament = importlib.import_module(f"tournaments.{interaction.namespace.pool.lower()}")
     TEAM_ROLES = tournament.TEAM_ROLES
 
-    options = ["Mixed Team"] + list(TEAM_ROLES.keys())
+    options = list(TEAM_ROLES.keys()) + ["Mixed Team"]
     return [
         discord.app_commands.Choice(name=opt, value=opt)
         for opt in options if current.lower() in opt
@@ -602,6 +621,15 @@ async def map_final_command(interaction: discord.Interaction, choice: str, overr
             "Please choose either 'Standard' or 'Wildcard'.", ephemeral=True)
         return
 
+    # Function to check if a map pool has any maps remaining
+    def pool_has_maps(pool):
+        return any(maps for maps in selection_state["remaining_maps"].values() if maps["map_pool"] == pool)
+
+    # Validate the choice of map pool
+    if not pool_has_maps(choice):
+        await interaction.response.send_message(f"No maps left in the {choice} map pool to choose from!", ephemeral=True)
+        return
+    
     # Assign the selected choice of map pool to each team
     if has_admin_privileges(interaction.user) and override == "Yes":
         selection_state["final_map_pool"]["team1"] = choice
@@ -620,11 +648,6 @@ async def map_final_command(interaction: discord.Interaction, choice: str, overr
             map_key for map_key, map_info in selection_state["remaining_maps"].items()
             if map_info["map_pool"] == agreed_pool
             ]
-
-        if not final_maps:
-            await interaction.response.send_message(
-                f"No maps left in the {agreed_pool} map pool to choose from!", ephemeral=True)
-            return
 
         selection_state["random_map"] = random.choice(final_maps)
 

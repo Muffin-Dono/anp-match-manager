@@ -1,14 +1,16 @@
 # Tournament settings
-SETTINGS = {
+INFO = {
+    "full_name": "Ghost Gauntlet 2026",
     "start_date": "2026-03-16",
     "equal_bans": True, # equal number of map bans per team
     "max_bans": 1, # maximum number of maps banned per team
-    "max_picks": 1 # maximum number of maps picked per team
+    "max_picks": 1, # maximum number of maps picked per team
+    "map_pools": ["Standard"] # list of available map pools
 }
 
 # List of available maps with base names, aliases, and map pool types
 MAP_POOL = {
-    "nt_ballistremade_ctg_a26ff": {
+    "ntre_ballistremade_ctg_a26ff": {
         "base_name": ["Ballistremade"],
         "aliases": ["Ballistrade", "Balli"],
         "map_pool": "Standard"
