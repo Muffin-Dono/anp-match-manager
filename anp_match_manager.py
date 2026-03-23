@@ -32,11 +32,13 @@ for _, name, _ in pkgutil.iter_modules(["tournaments"]):
     module = importlib.import_module(f"{"tournaments"}.{name}")
 
     # Parse the date string
-    start_date_str = module.SETTINGS['start_date']
+    full_name = module.INFO['full_name']
+    start_date_str = module.INFO['start_date']
     start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-    modules_with_dates.append((name, start_date))
+    map_pools = module.INFO['map_pools']
+    modules_with_dates.append((name, full_name, start_date, map_pools))
 
-tournaments = sorted(modules_with_dates, key=lambda x: x[1], reverse=True)
+tournaments = sorted(modules_with_dates, key=lambda x: x[2], reverse=True)
 
 # Initialize global state dictionary for map selection
 state_handler = {}
@@ -87,6 +89,7 @@ def get_state(channel_id):
             "ban_order": None,
             "bans": {"team1": None, "team2": None},
             "picks": {"team1": None, "team2": None},
+            "map_pools": None,
             "remaining_maps": {},
             "final_map_pool": {"team1": None, "team2": None},
             "random_map": None
@@ -115,8 +118,9 @@ def get_base_name(team_pick):
 
 # Check if a user has the required perms to bypass team restrictions
 def has_admin_privileges(member):
-    admin_roles = ["Discord Admin", "Organizer"]
-    return any(role.name in admin_roles for role in member.roles)
+    return (
+        any(role.permissions.administrator for role in member.roles)
+        or any(role.name == "Organizer" for role in member.roles))
 
 # Function to resolve team name (returns full team name)
 def resolve_team_name(team_name):
@@ -131,14 +135,72 @@ def resolve_team_name(team_name):
 
 # Function to get team name without clan tag
 def trim_team_name(team_name: str) -> str | None:
-    team_data = TEAM_ROLES.get(team_name)
-    return team_data["name"] if team_data else None
+    team_info = TEAM_ROLES.get(team_name)
+    return team_info["name"] if team_info else None
 
 # Function to check if user belongs to a team
 def user_is_on_team(member: discord.Member, team_name: str):
     if team_name in ["Mixed Team", "Mixed Team A", "Mixed Team B"]:
-        return True # Means that anyone can be on "Mixed Team"
-    return any(role.name == team_name for role in member.roles)
+        return True
+
+    team_info = TEAM_ROLES.get(team_name)
+    if not team_info:
+        return False
+
+    team_role_id = team_info["id"]
+
+    return any(role.id == team_role_id for role in member.roles)
+
+# Function to build and send the embed with the match details
+async def send_summary_embed(interaction: discord.Interaction, selection_state):
+    team1 = selection_state["teams"]["team1"]
+    team2 = selection_state["teams"]["team2"]
+    first_to_ban = selection_state["ban_order"][0]
+    second_to_ban = selection_state["ban_order"][1]
+    
+    team1_ban = selection_state["bans"]["team1"]
+    team2_ban = selection_state["bans"]["team2"]
+    team1_pick = selection_state["picks"]["team1"]
+    team2_pick = selection_state["picks"]["team2"]
+    
+    # Confirm match details in an embed
+    embed = discord.Embed(
+        title=f"{team1} vs {team2}",
+        description=":white_check_mark: Match is ready to go!",
+        colour=discord.Colour.from_rgb(252, 155, 40)
+        )
+
+    # Add fields to the embed for picks...
+    first_map = f"{get_base_name(team1_pick)} `{team1_pick}`" if team1 == second_to_ban else f"{get_base_name(team2_pick)} `{team2_pick}`"
+    second_map = f"{get_base_name(team2_pick)} `{team2_pick}`" if team2 == first_to_ban else f"{get_base_name(team1_pick)} `{team1_pick}`"
+    third_map = f"{get_base_name(selection_state["random_map"])} `{selection_state["random_map"]}`"
+
+    embed_maps = (
+        f"1. {first_map}\n"
+        f"2. {second_map}\n"
+        f"3. {third_map}"
+        )
+
+    embed_teams = (
+        f"1. {trim_team_name(second_to_ban)}\n"
+        f"2. {trim_team_name(first_to_ban)}\n"
+        f"3. *Random* ({MAP_POOL[selection_state["random_map"]]["map_pool"]})"
+        )
+
+    embed.add_field(name="\u00AD", value="\u00AD", inline=False)
+
+    embed.add_field(name="Maps", value=embed_maps, inline=True)
+    embed.add_field(name="Picked by", value=embed_teams, inline=True)
+
+    embed.add_field(name="\u00AD", value="\u00AD", inline=False)
+
+    # ...and bans
+    embed.add_field(name=f"{trim_team_name(team1)} Ban", value=f"{get_base_name(team1_ban)} `{team1_ban}`", inline=True)
+    embed.add_field(name=f"{trim_team_name(team2)} Ban", value=f"{get_base_name(team2_ban)} `{team2_ban}`", inline=True)
+
+    await interaction.followup.send(embed=embed)
+
+    state_handler.pop(interaction.channel_id, None)
 
 # Ensure bot is ready
 @bot.event
@@ -197,15 +259,24 @@ async def match_command(interaction: discord.Interaction, pool: str, team1: str,
 
     # Dynamically import dictionary of map pool based on user input
     try:
-        tournament = importlib.import_module(f"tournaments.{pool.lower()}")
+        for name, full_name, _, map_pools in tournaments:
+            if pool.lower() == name.lower() or pool.lower() == full_name.lower():
+                module_name = name
+                break
+
+        tournament = importlib.import_module(f"tournaments.{module_name}")
+
         global MAP_POOL
         MAP_POOL = tournament.MAP_POOL
+
         global TEAM_ROLES
         TEAM_ROLES = tournament.TEAM_ROLES
+
     except ImportError:
         await interaction.response.send_message(
             f"ImportError: Could not import the map pool: {pool}.", ephemeral=True)
         return
+    
     except AttributeError:
         await interaction.response.send_message(
             "AttributeError: Does not contain a valid map pool.", ephemeral=True)
@@ -215,21 +286,19 @@ async def match_command(interaction: discord.Interaction, pool: str, team1: str,
     resolved_team2 = resolve_team_name(team2)
 
     if not has_admin_privileges(interaction.user):
-        member_roles = [role.name for role in interaction.user.roles]
-        user_teams = []
-        for team, aliases in TEAM_ROLES.items():
-            for role_name in member_roles:
+        user_role_ids = {role.id for role in interaction.user.roles}
 
-                if any(alias.lower() in role_name.lower() for alias in [team, aliases["tag"], aliases["name"]]):
-                    user_teams.append(team)
-                    break
+        user_teams = [
+            name for name, info in TEAM_ROLES.items()
+            if info["id"] in user_role_ids
+        ]
 
         if resolved_team1 not in user_teams and resolved_team2 not in user_teams and "Mixed Team" not in [resolved_team1, resolved_team2]:
             await interaction.response.send_message(
                 "You must belong to one of the selected teams. Otherwise, pick \"Mixed Team\".", ephemeral=True)
             return
 
-    if not resolved_team1 or not resolved_team2 or not "Mixed Team":
+    if not resolved_team1 or not resolved_team2:
         await interaction.response.send_message(
             "Team names are not recognized.", ephemeral=True)
         return
@@ -245,6 +314,7 @@ async def match_command(interaction: discord.Interaction, pool: str, team1: str,
     selection_state["ban_order"] = None
     selection_state["bans"] = {"team1": None, "team2": None}
     selection_state["picks"] = {"team1": None, "team2": None}
+    selection_state["map_pools"] = map_pools
     selection_state["remaining_maps"] = MAP_POOL.copy()
     selection_state["final_map_pool"] = {"team1": None, "team2": None}
     selection_state["random_map"] = None
@@ -263,9 +333,13 @@ async def match_command(interaction: discord.Interaction, pool: str, team1: str,
         f"Performing a coin toss to determine which team decides the ban order...\n\n"
         f"**{coin_toss_winner}** wins the coin toss! Pick your team's ban/pick order using `/order`")
     
-    server_roles = await interaction.guild.fetch_roles()
-    role_names = [r.name for r in server_roles]
-    missing_roles = [name for name in TEAM_ROLES.keys() if name not in role_names]
+    server_role_ids = {role.id for role in interaction.guild.roles}
+    server_role_names = {role.name for role in interaction.guild.roles}
+
+    missing_roles = [
+        name for name, info in TEAM_ROLES.items()
+        if info["id"] not in server_role_ids and name not in server_role_names
+    ]
     
     if missing_roles:
         await interaction.followup.send(
@@ -282,7 +356,7 @@ async def match_pool_autocomplete(
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
 
-    options = [name.upper() for name, start_date in tournaments][:2]
+    options = [full_name for _, full_name, _, _ in tournaments][:2]
     return [
         discord.app_commands.Choice(name=opt, value=opt)
         for opt in options if current.lower() in opt
@@ -295,7 +369,9 @@ async def match_team1_autocomplete(
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
 
-    tournament = importlib.import_module(f"tournaments.{interaction.namespace.pool.lower()}")
+    pool_name = interaction.namespace.pool.lower()
+    module_name = next(name for name, full_name, _, _ in tournaments if pool_name == full_name.lower())
+    tournament = importlib.import_module(f"tournaments.{module_name}")
     TEAM_ROLES = tournament.TEAM_ROLES
 
     options = list(TEAM_ROLES.keys()) + ["Mixed Team"]
@@ -310,7 +386,9 @@ async def match_team2_autocomplete(
     current: str,
 ) -> list[discord.app_commands.Choice[str]]:
 
-    tournament = importlib.import_module(f"tournaments.{interaction.namespace.pool.lower()}")
+    pool_name = interaction.namespace.pool.lower()
+    module_name = next(name for name, full_name, _, _ in tournaments if pool_name == full_name.lower())
+    tournament = importlib.import_module(f"tournaments.{module_name}")
     TEAM_ROLES = tournament.TEAM_ROLES
 
     options = list(TEAM_ROLES.keys()) + ["Mixed Team"]
@@ -549,7 +627,14 @@ async def map_pick_command(interaction: discord.Interaction, map: str):
         await interaction.response.send_message(
             f"{trim_team_name(picking_team)} has {added_text}: **{picked_map}**\n\n"
             "Picking phase complete!\n\n")
-        await interaction.followup.send(
+        if len(selection_state["map_pools"]) == 1:
+            final_maps = list(selection_state["remaining_maps"].keys())
+            selection_state["random_map"] = random.choice(final_maps)
+            
+            await send_summary_embed(interaction, selection_state)
+
+        else:
+            await interaction.followup.send(
             "The final map will be randomly selected from either the Standard or Wildcard map pool.\n\n"
             f"**{trim_team_name(team1)}** and **{trim_team_name(team2)}** can finalize the map selection process by using `/map_final`.\n\n"
             "-# To invoke the Wildcard, both teams must agree. Otherwise, the selection will default to the Standard map pool.")
@@ -600,19 +685,10 @@ async def map_final_command(interaction: discord.Interaction, choice: str, overr
             "Teams must complete the banning phase first.", ephemeral=True)
         return
 
-    first_to_ban = selection_state["ban_order"][0]
-    second_to_ban = selection_state["ban_order"][1]
-
-    team1_ban = selection_state["bans"]["team1"]
-    team2_ban = selection_state["bans"]["team2"]
-
     if not all(selection_state["picks"].values()):
         await interaction.response.send_message(
             "Teams must complete the picking phase first.", ephemeral=True)
         return
-
-    team1_pick = selection_state["picks"]["team1"]
-    team2_pick = selection_state["picks"]["team2"]
 
     choice = choice.capitalize()
 
@@ -656,44 +732,7 @@ async def map_final_command(interaction: discord.Interaction, choice: str, overr
             f"Randomly selecting the final map...\n\n"
             f"The final map is: **{selection_state['random_map']}**")
 
-        # Confirm match details in an embed
-        embed = discord.Embed(
-        title=f"{team1} vs {team2}",
-        description=":white_check_mark: Match is ready to go!",
-        colour=discord.Colour.from_rgb(252, 155, 40)
-        )
-
-        # Add fields to the embed for picks...
-        first_map = f"{get_base_name(team1_pick)} `{team1_pick}`" if team1 == second_to_ban else f"{get_base_name(team2_pick)} `{team2_pick}`"
-        second_map = f"{get_base_name(team2_pick)} `{team2_pick}`" if team2 == first_to_ban else f"{get_base_name(team1_pick)} `{team1_pick}`"
-        third_map = f"{get_base_name(selection_state["random_map"])} `{selection_state["random_map"]}`"
-
-        embed_maps = (
-            f"1. {first_map}\n"
-            f"2. {second_map}\n"
-            f"3. {third_map}"
-            )
-
-        embed_teams = (
-            f"1. {trim_team_name(second_to_ban)}\n"
-            f"2. {trim_team_name(first_to_ban)}\n"
-            f"3. *Random* ({MAP_POOL[selection_state["random_map"]]["map_pool"]})"
-            )
-
-        embed.add_field(name="\u00AD", value="\u00AD", inline=False)
-
-        embed.add_field(name="Maps", value=embed_maps, inline=True)
-        embed.add_field(name="Picked by", value=embed_teams, inline=True)
-
-        embed.add_field(name="\u00AD", value="\u00AD", inline=False)
-
-        # ...and bans
-        embed.add_field(name=f"{trim_team_name(team1)} Ban", value=f"{get_base_name(team1_ban)} `{team1_ban}`", inline=True)
-        embed.add_field(name=f"{trim_team_name(team2)} Ban", value=f"{get_base_name(team2_ban)} `{team2_ban}`", inline=True)
-
-        await interaction.followup.send(embed=embed)
-
-        state_handler.pop(interaction.channel_id, None)
+        await send_summary_embed(interaction, selection_state)
 
     else:
         await interaction.response.send_message(
