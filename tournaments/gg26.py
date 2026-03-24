@@ -3,6 +3,7 @@ INFO = {
     "full_name": "Ghost Gauntlet 2026",
     "start_date": "2026-03-16",
     "equal_bans": True, # equal number of map bans per team
+    "maps_per_match": 3, # number of maps in a single match
     "max_bans": 1, # maximum number of maps banned per team
     "max_picks": 1, # maximum number of maps picked per team
     "map_pools": ["Standard"] # list of available map pools
