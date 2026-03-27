@@ -650,7 +650,7 @@ async def map_pick_command(interaction: discord.Interaction, map: str):
             final_maps = list(selection_state["remaining_maps"].keys())
             selection_state["random_map"] = random.choice(final_maps)
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
             await interaction.followup.send(
                 "Randomly selecting the final map...")
 
