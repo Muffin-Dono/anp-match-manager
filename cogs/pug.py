@@ -24,7 +24,7 @@ async def timeout_clear(channel_id, interaction):
         queue_handler.pop(channel_id, None)
         timeout_tasks.pop(channel_id, None)
         await interaction.followup.send(
-            f"Pug queue has been cleared of all players, due to {TIMEOUT_DURATION/(60*60)} hour(s) of inactivity.")
+            f"PUG queue has been cleared of all players, due to {TIMEOUT_DURATION/(60*60)} hour(s) of inactivity.")
 
     except asyncio.CancelledError:
         pass
@@ -55,11 +55,12 @@ def build_main_panel_embed(channel_id: int):
     queue = get_state(channel_id)
 
     description=("Join the queue to play!\n\n"
-                 "**Competitive rules apply**. Click the **Guide** button for more info.")
+                 "**Competitive rules apply**. Click **How to Play** for more info.")
 
     embed = discord.Embed(
         title="Competitive PUG Queue",
-        description=description
+        description=description,
+        colour=0x99AAB5
     )
 
     embed.add_field(name="", value="\u00AD", inline=False)
@@ -93,29 +94,45 @@ def build_more_panel_embed(channel_id: int):
 
     embed = discord.Embed(
         title="Additional Actions",
-        description="**The (optional) buttons below may help you start your match**"
+        description="**The (optional) buttons below may help you start your match**",
+        colour=0x99AAB5
     )
 
     embed.set_footer(text="Created by Muffin-Dono")
 
     return embed
 
-async def join_queue(user_id: int, channel_id: int):
+async def update_presence(bot: commands.Bot, channel_id: int):
+    queue = get_state(channel_id)
+
+    players = len(queue['players'])
+    if players > 0:
+        await bot.change_presence(
+            activity=discord.Game(name=f"{players} player(s) in queue")
+            )
+    else:
+        await bot.change_presence(
+            activity=None
+            )
+
+async def join_queue(bot: commands.Bot, user_id: int, channel_id: int):
     queue = get_state(channel_id)
 
     if user_id in queue['players']:
         return False
 
     queue['players'].append(user_id)
+    await update_presence(bot, channel_id)
     return True
 
-async def leave_queue(user_id: int, channel_id: int):
+async def leave_queue(bot: commands.Bot, user_id: int, channel_id: int):
     queue = get_state(channel_id)
 
     if user_id not in queue['players']:
         return False
 
     queue['players'].remove(user_id)
+    await update_presence(bot, channel_id)
     return True
 
 class ButtonOnCooldown(commands.CommandError):
@@ -127,7 +144,7 @@ ping_cd = commands.CooldownMapping.from_cooldown(1, 600, key) # 10 minutes
 
 class MoreButtons(discord.ui.View):
     def __init__(self):
-        super().__init__()
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="Ping Queue", style=discord.ButtonStyle.red, emoji="\U0001f514")
     async def ping_queue_button(self, interaction, button):
@@ -145,8 +162,8 @@ class MoreButtons(discord.ui.View):
         
         if len(queue['players']) < 6:
             await interaction.response.send_message(
-                "Oops! Not enough players in queue. **Please confirm there are enough players before attempting to ping again**."
-                , ephemeral=True)
+                "Oops! Not enough players in queue. **Please confirm there are enough players before attempting to ping again**.",
+                ephemeral=True)
             return
         
         if retry_after:
@@ -161,11 +178,11 @@ class MoreButtons(discord.ui.View):
 
             await player.send(f"<@{interaction.user.id}> has pinged everyone in the queue! :bell:\n"
                               f"> <#{interaction.channel_id}>\n\n"
-                              "Gather in VC and make teams! :sound:"
-                              , allowed_mentions=discord.AllowedMentions(users=False))
+                              "Gather in VC and make teams! :sound:",
+                              allowed_mentions=discord.AllowedMentions(users=False))
             
-        await interaction.followup.send(f"**<@{interaction.user.id}> has pinged everyone in the queue!**"
-                                            , allowed_mentions=discord.AllowedMentions(users=True))
+        await interaction.followup.send(f"**<@{interaction.user.id}> has pinged everyone in the queue!**",
+                                        allowed_mentions=discord.AllowedMentions(users=True))
 
     @discord.ui.button(label="Map Vote", style=discord.ButtonStyle.blurple)
     async def map_vote_button(self, interaction, button):
@@ -177,11 +194,14 @@ class MoreButtons(discord.ui.View):
 
 # Main set of buttons, for joining/leaving queue and guide
 class MainButtons(discord.ui.View):
-    @discord.ui.button(label="Join Queue", style=discord.ButtonStyle.green, emoji="\U0000270b")
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Join Queue", style=discord.ButtonStyle.green, emoji="\U0000270b", custom_id='persistent_view:join_queue')
     async def join_button(self, interaction, button):
         queue = get_state(interaction.channel_id)
 
-        added = await join_queue(interaction.user.id, interaction.channel_id)
+        added = await join_queue(interaction.client, interaction.user.id, interaction.channel_id)
         if not added:
             await interaction.response.send_message("You are already in the queue.", ephemeral=True)
             return
@@ -193,11 +213,11 @@ class MainButtons(discord.ui.View):
             f"<@{interaction.user.id}> has joined the queue -----> **{len(queue['players'])} player(s) in queue**\n",
             allowed_mentions=discord.AllowedMentions(users=False))
 
-    @discord.ui.button(label="Leave Queue", style=discord.ButtonStyle.red, emoji="\U0001f44b")
+    @discord.ui.button(label="Leave Queue", style=discord.ButtonStyle.red, emoji="\U0001f44b", custom_id='persistent_view:leave_queue')
     async def leave_button(self, interaction, button):
         queue = get_state(interaction.channel_id)
 
-        removed = await leave_queue(interaction.user.id, interaction.channel_id)
+        removed = await leave_queue(interaction.client, interaction.user.id, interaction.channel_id)
         if not removed:
             await interaction.response.send_message("You are not in the queue.", ephemeral=True)
             return
@@ -209,19 +229,45 @@ class MainButtons(discord.ui.View):
             f"<@{interaction.user.id}> has left the queue -----> **{len(queue['players'])} player(s) in queue**\n",
             allowed_mentions=discord.AllowedMentions(users=False))
 
-    @discord.ui.button(label="Guide", style=discord.ButtonStyle.blurple, emoji="\U0001f5d2")
-    async def guide_button(self, interaction, button):
-        await interaction.response.send_message(
-            "Use this bot to organize **competitive** pick-up games (PUGs)!\n\n"
-            "1. Join the queue to get the ball rolling. **Please only join if you can play a full PUG**, which may last up to 40 minutes.\n\n"
-            "2. To join the queue, click **Join Queue** or type **`/join`**. Remember to **`/leave`** when you're finished so the next person can play.\n\n"
-            "3. The bot will DM you when enough players (usually 10) join - please **assemble in the voice chat and start picking teams**.\n\n"
-            "4. **You must join the VC on time**. Otherwise, you risk losing your spot after a 10-minute grace period.\n\n"
-            "5. Please **follow good comms etiquette in your team VC**. Try your best to provide info to your team, such as enemy locations."
-            , ephemeral=True
-        )
+    @discord.ui.button(label="How to Play", style=discord.ButtonStyle.blurple, emoji="\U0001f5d2", custom_id='persistent_view:how_to_play')
+    async def how_to_play_button(self, interaction, button):
+        how_to_play_embed = discord.Embed(
+            title="How to Play a PUG",
+            description="",
+            colour=0x5865F2
+            )
 
-    @discord.ui.button(label="Actions", style=discord.ButtonStyle.grey, emoji="\U00002728", row=1)
+        how_to_play_field1 = (
+            "Pick-up games (PUGs) are **competitive**. While anyone is welcome to join, **prior experience is recommended**.\n\n"
+            "1. First, **`/join`** the queue, but **only if you can play a full PUG** (up to 40 mins)."
+            )
+
+        how_to_play_field2 = (
+            "2. **Matches only start when enough players join**, usually 10. The bot will DM you."
+            )
+
+        how_to_play_field3 = (
+            "3. **Join VC on time** and make teams, or lose your spot (10-minute grace period)."
+            )
+
+        how_to_play_field4 = (
+            "4. Share info (**enemy locations, health** etc.) with your team and work together."
+            )
+
+        how_to_play_field5 = (
+            "5. Have fun! Remember to **`/leave`** when you're finished **so others can play too**.\n\n"
+            "Use **`/help pug`** for the full list of commands."
+            )
+
+        how_to_play_embed.add_field(name="", value=how_to_play_field1, inline=False)
+        how_to_play_embed.add_field(name="", value=how_to_play_field2, inline=False)
+        how_to_play_embed.add_field(name="", value=how_to_play_field3, inline=False)
+        how_to_play_embed.add_field(name="", value=how_to_play_field4, inline=False)
+        how_to_play_embed.add_field(name="", value=how_to_play_field5, inline=False)
+
+        await interaction.response.send_message(embed=how_to_play_embed, ephemeral=True)
+
+    @discord.ui.button(label="Actions", style=discord.ButtonStyle.grey, emoji="\U00002728", row=1, custom_id='persistent_view:actions')
     async def actions_button(self, interaction, button):
         more_panel = build_more_panel_embed(interaction.channel_id)
         await interaction.response.send_message(embed=more_panel, view=MoreButtons(), ephemeral=True)
@@ -245,7 +291,7 @@ class Pug(commands.Cog):
     async def join_command(self, interaction: discord.Interaction):
         queue = get_state(interaction.channel_id)
 
-        added = await join_queue(interaction.user.id, interaction.channel_id)
+        added = await join_queue(interaction.client, interaction.user.id, interaction.channel_id)
         if not added:
             await interaction.response.send_message("You are already in the queue.", ephemeral=True)
         else:
@@ -264,7 +310,7 @@ class Pug(commands.Cog):
     async def leave_command(self, interaction: discord.Interaction):
         queue = get_state(interaction.channel_id)
 
-        removed = await leave_queue(interaction.user.id, interaction.channel_id)
+        removed = await leave_queue(interaction.client, interaction.user.id, interaction.channel_id)
         if not removed:
             await interaction.response.send_message("You are not in the queue.", ephemeral=True)
         else:
@@ -290,6 +336,7 @@ class Pug(commands.Cog):
             return
 
         queue['players'].remove(player.id)
+        await update_presence(self.bot, interaction.channel_id)
 
         await interaction.response.send_message(
             f"<@{interaction.user.id}> has removed <@{player.id}> from the queue -----> **{len(queue['players'])} player(s) in queue**\n",

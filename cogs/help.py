@@ -21,7 +21,6 @@ class Help(commands.Cog):
         pug_embed = discord.Embed(title="**PUG Queue Help**", color=0x2F3136)
 
         pug_embed_field = (
-            "Pick-up games (PUGs) are **competitive**. Although anyone can join, it is **recommended** that you have some experience playing the game before jumping in.\n\n"
             "**Useful Commands**\n"
             "- **`/pug`** - Opens the panel for the PUG queue.\n"
             "- **`/join`** - Join the PUG queue.\n"

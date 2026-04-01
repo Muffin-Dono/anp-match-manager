@@ -41,14 +41,20 @@ class MatchManager(commands.Bot):
         for filename in os.listdir("./cogs"):
             if (
                 filename.endswith(".py")
-                and filename != "__init__.py"
                 and not filename.endswith("dev.py")
+                and filename != "__init__.py"
             ):
                 await self.load_extension(f"cogs.{filename[:-3]}")
                 print(f"Loaded cog: {filename}")
         
+        # guild = discord.Object(id=GUILD_ID)
+        
+        # # Clear command tree
+        # self.tree.clear_commands(guild=guild)
+        
+        # Global sync
         synced = await self.tree.sync()
-        print(f"Synced {len(synced)} commands for guild {GUILD_ID}")
+        print(f"Synced {len(synced)} commands to guild {GUILD_ID}")
 
 bot = MatchManager()
 bot.run(TOKEN)

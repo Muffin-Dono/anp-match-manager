@@ -10,7 +10,7 @@ Although the bot was initially built to organize competition in the video game *
 The bot is designed for competitive environments where teams and players already have roles in the server, and where map pools may change between tournaments. The number of maps you can ban or pick, as well as the order in which you do so, may vary depending on the tournament.
 
 > [!IMPORTANT]
-> For tournament map selection, the current version of the bot assumes that each team bans one map and picks one map for each matchup.
+> The current version of the bot assumes that each team bans one map and picks one map for each matchup.
 
 The tournament map selection process is as follows:
 1. First, two opposing teams register themselves and initiate a coin toss.
@@ -34,7 +34,7 @@ Players can currently:
 - Receive a DM notification to gather in voice and form teams
 - Expand the PUG Panel with the Actions button to access additional tools
 
-**PUG Panel Actions Menu**
+**PUG Panel Actions Button Menu**
 - **Ping Queue**
   - DM players in the queue.
 - **Map Vote** (Tentative)
