@@ -17,23 +17,41 @@ panel_messages = {}
 # Set up the timeout logic for the bot
 TIMEOUT_DURATION = 3*60*60  # 3 hours
 
-async def timeout_clear(channel_id, interaction):
+async def timeout_clear(bot: commands.Bot, channel_id):
     try:
         await asyncio.sleep(TIMEOUT_DURATION)
 
+        # Check if players are in queue
+        queue = queue_handler.get(channel_id)
+        if not queue or not queue['players']:
+            return
+
+        # Clear queue
         queue_handler.pop(channel_id, None)
         timeout_tasks.pop(channel_id, None)
-        await interaction.followup.send(
+
+        # Update presence
+        await update_presence(bot, channel_id)
+
+        # Notify channel that queue has been cleared
+        channel = bot.get_channel(channel_id)
+        await channel.send(
             f"PUG queue has been cleared of all players, due to {TIMEOUT_DURATION/(60*60)} hour(s) of inactivity.")
+
+        if channel_id in panel_messages:
+            panel_message = panel_messages[channel_id]
+            embed = build_main_panel_embed(channel_id)
+            await panel_message.edit(embed=embed, view=MainButtons())
 
     except asyncio.CancelledError:
         pass
 
 # Function to reset the timeout counter
-def reset_timeout_counter(channel_id, interaction):
+def reset_timeout_counter(bot: commands.Bot, channel_id):
     if channel_id in timeout_tasks:
         timeout_tasks[channel_id].cancel()
-    task = asyncio.create_task(timeout_clear(channel_id, interaction))
+
+    task = asyncio.create_task(timeout_clear(bot, channel_id))
     timeout_tasks[channel_id] = task
 
 # Function to remove any active timeout counters in the channel
@@ -148,8 +166,7 @@ class MoreButtons(discord.ui.View):
 
     @discord.ui.button(label="Ping Queue", style=discord.ButtonStyle.red, emoji="\U0001f514")
     async def ping_queue_button(self, interaction, button):
-        retry_after = ping_cd.update_rate_limit(interaction)
-        
+
         queue = get_state(interaction.channel_id)
 
         if not queue['players']:
@@ -159,13 +176,15 @@ class MoreButtons(discord.ui.View):
         if interaction.user.id not in queue['players']:
             await interaction.response.send_message("Only queued players may ping the queue.", ephemeral=True)
             return
-        
+
         if len(queue['players']) < 6:
             await interaction.response.send_message(
-                "Oops! Not enough players in queue. **Please confirm there are enough players before attempting to ping again**.",
+                "**Oops! __Don't Ping Queue__** until more players join, ideally 10 (5v5).\n"
+                "Ask first if you want to start with less players (3v3, 4v4).",
                 ephemeral=True)
             return
-        
+
+        retry_after = ping_cd.update_rate_limit(interaction)
         if retry_after:
             minutes = int(retry_after // 60)
             await interaction.response.send_message(f"Ping is on cooldown. Try again in {minutes} minutes.", ephemeral=True)
@@ -180,7 +199,7 @@ class MoreButtons(discord.ui.View):
                               f"> <#{interaction.channel_id}>\n\n"
                               "Gather in VC and make teams! :sound:",
                               allowed_mentions=discord.AllowedMentions(users=False))
-            
+
         await interaction.followup.send(f"**<@{interaction.user.id}> has pinged everyone in the queue!**",
                                         allowed_mentions=discord.AllowedMentions(users=True))
 
@@ -213,6 +232,9 @@ class MainButtons(discord.ui.View):
             f"<@{interaction.user.id}> has joined the queue -----> **{len(queue['players'])} player(s) in queue**\n",
             allowed_mentions=discord.AllowedMentions(users=False))
 
+        # Restarts the timeout counter when a command is used on time
+        reset_timeout_counter(interaction.client, interaction.channel_id)
+
     @discord.ui.button(label="Leave Queue", style=discord.ButtonStyle.red, emoji="\U0001f44b", custom_id='persistent_view:leave_queue')
     async def leave_button(self, interaction, button):
         queue = get_state(interaction.channel_id)
@@ -229,6 +251,9 @@ class MainButtons(discord.ui.View):
             f"<@{interaction.user.id}> has left the queue -----> **{len(queue['players'])} player(s) in queue**\n",
             allowed_mentions=discord.AllowedMentions(users=False))
 
+        # Restarts the timeout counter when a command is used on time
+        reset_timeout_counter(interaction.client, interaction.channel_id)
+
     @discord.ui.button(label="How to Play", style=discord.ButtonStyle.blurple, emoji="\U0001f5d2", custom_id='persistent_view:how_to_play')
     async def how_to_play_button(self, interaction, button):
         how_to_play_embed = discord.Embed(
@@ -243,7 +268,7 @@ class MainButtons(discord.ui.View):
             )
 
         how_to_play_field2 = (
-            "2. **Matches only start when enough players join**, usually 10. The bot will DM you."
+            "2. Matches only start when (usually) 10 players join. **__Don't Ping Queue until then__**."
             )
 
         how_to_play_field3 = (
@@ -303,7 +328,7 @@ class Pug(commands.Cog):
         await refresh_panel(interaction.channel_id)
 
         # Restarts the timeout counter when a command is used on time
-        reset_timeout_counter(interaction.channel_id, interaction)
+        reset_timeout_counter(interaction.client, interaction.channel_id)
 
     # Command to leave the queue
     @app_commands.command(name="leave", description="Leave the PUG queue")
@@ -322,7 +347,7 @@ class Pug(commands.Cog):
         await refresh_panel(interaction.channel_id)
 
         # Restarts the timeout counter when a command is used on time
-        reset_timeout_counter(interaction.channel_id, interaction)
+        reset_timeout_counter(interaction.client, interaction.channel_id)
 
     # Command to kick a player from the queue
     @app_commands.command(name="remove", description="Remove a player from the PUG queue")
