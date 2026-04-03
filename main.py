@@ -55,6 +55,8 @@ class MatchManager(commands.Bot):
                 await self.load_extension(f"cogs.{filename[:-3]}")
                 print(f"Loaded cog: {filename}")
         
+        asyncio.create_task(self.reset_nickname())
+        
         # guild = discord.Object(id=GUILD_ID)
         
         # # Clear command tree

@@ -83,7 +83,7 @@ To host the **ANP Match Manager** bot yourself, follow these steps:
    - **`INFO`** - Tournament name, start date, map pools etc.
 
 4. **Manage Permissons**
-   - The bot requires the "Manage Nickname" permission to automatically update its nickname to reflect the number of players in the PUG queue.
+   - The bot requires the **"Manage Nicknames"** permission to automatically update its nickname to reflect the number of players in the PUG queue.
 
 5. **Configure Your Commands**
    - You may only want one of the two major functions of this bot. You can restrict usage of the bot's commands to channels, roles, and users.

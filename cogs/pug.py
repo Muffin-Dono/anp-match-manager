@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import datetime
 
 # from dotenv import load_dotenv
 import discord
@@ -30,17 +29,18 @@ async def timeout_clear(bot: commands.Bot, channel_id):
         queue_handler.pop(channel_id, None)
         timeout_tasks.pop(channel_id, None)
 
-        # Update presence
+        # Update nickname
         await update_nickname(bot, channel_id)
 
         # Notify channel that queue has been cleared
-        channel = bot.get_channel(channel_id)
+        channel = await bot.fetch_channel(channel_id)
         await channel.send(
             f"PUG queue has been cleared of all players, due to {int(TIMEOUT_DURATION // (60*60))} hour(s) of inactivity. :hourglass:")
 
         if channel_id in panel_messages:
-            panel_message = panel_messages[channel_id]
+            panel_message = await channel.fetch_message(panel_messages[channel_id])
             embed = build_main_panel_embed(channel_id)
+            
             await panel_message.edit(embed=embed, view=MainButtons())
 
     except asyncio.CancelledError:
@@ -99,11 +99,12 @@ def build_main_panel_embed(channel_id: int):
 
     return embed
 
-async def refresh_panel(channel_id: int):
+async def refresh_panel(bot: commands.Bot, channel_id: int):
     if channel_id not in panel_messages:
         return
 
-    panel_message = panel_messages[channel_id]
+    channel = await bot.fetch_channel(channel_id)
+    panel_message = await channel.fetch_message(panel_messages[channel_id])
     embed = build_main_panel_embed(channel_id)
 
     await panel_message.edit(embed=embed, view=MainButtons())
@@ -131,7 +132,7 @@ async def update_nickname(bot: commands.Bot, channel_id: int):
     queue = get_state(channel_id)
     players = len(queue['players'])
 
-    channel = bot.get_channel(channel_id)
+    channel = await bot.fetch_channel(channel_id)
     guild = channel.guild
     me = guild.me
 
@@ -317,9 +318,10 @@ class Pug(commands.Cog):
         main_panel = build_main_panel_embed(interaction.channel_id)
         await interaction.response.send_message(embed=main_panel, view=MainButtons())
 
-        panel_message = await interaction.original_response()
-
-        panel_messages[interaction.channel_id] = panel_message
+        save_panel_message = await interaction.original_response()
+        
+        panel_message = await interaction.channel.fetch_message(save_panel_message.id)
+        panel_messages[interaction.channel_id] = panel_message.id
 
     # Command to join the queue
     @app_commands.command(name="join", description="Join the PUG queue")
@@ -335,7 +337,7 @@ class Pug(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(users=False))
 
         # Refresh the panel
-        await refresh_panel(interaction.channel_id)
+        await refresh_panel(interaction.client, interaction.channel_id)
 
         # Restarts the timeout counter when a command is used on time
         reset_timeout_counter(interaction.client, interaction.channel_id)
@@ -354,7 +356,7 @@ class Pug(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(users=False))
 
         # Refresh the panel
-        await refresh_panel(interaction.channel_id)
+        await refresh_panel(interaction.client, interaction.channel_id)
 
         # Restarts the timeout counter when a command is used on time
         reset_timeout_counter(interaction.client, interaction.channel_id)
@@ -378,7 +380,7 @@ class Pug(commands.Cog):
             allowed_mentions=discord.AllowedMentions(users=False))
 
         # Refresh the panel
-        await refresh_panel(interaction.channel_id)
+        await refresh_panel(interaction.client, interaction.channel_id)
 
         await player.send(
             f"<@{interaction.user.id}> has removed you from the queue. :door:\n"
