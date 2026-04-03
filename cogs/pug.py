@@ -31,12 +31,12 @@ async def timeout_clear(bot: commands.Bot, channel_id):
         timeout_tasks.pop(channel_id, None)
 
         # Update presence
-        await update_presence(bot, channel_id)
+        await update_nickname(bot, channel_id)
 
         # Notify channel that queue has been cleared
         channel = bot.get_channel(channel_id)
         await channel.send(
-            f"PUG queue has been cleared of all players, due to {TIMEOUT_DURATION/(60*60)} hour(s) of inactivity.")
+            f"PUG queue has been cleared of all players, due to {int(TIMEOUT_DURATION // (60*60))} hour(s) of inactivity. :hourglass:")
 
         if channel_id in panel_messages:
             panel_message = panel_messages[channel_id]
@@ -111,8 +111,15 @@ async def refresh_panel(channel_id: int):
 def build_more_panel_embed(channel_id: int):
 
     embed = discord.Embed(
-        title="Additional Actions",
-        description="**The (optional) buttons below may help you start your match**",
+        title=":sparkles: Actions Menu",
+        description=(
+            "**Here are some bonus options to help players set up a PUG:**\n\n"
+            "**Ping Queue**\n"
+            "- DM players in the queue.\n"
+            "**Map Vote**\n"
+            "- Start a map vote for the PUG.\n"
+            "**Scramble**\n"
+            "- Randomize queued players into two teams.\n"),
         colour=0x99AAB5
     )
 
@@ -120,18 +127,20 @@ def build_more_panel_embed(channel_id: int):
 
     return embed
 
-async def update_presence(bot: commands.Bot, channel_id: int):
+async def update_nickname(bot: commands.Bot, channel_id: int):
     queue = get_state(channel_id)
-
     players = len(queue['players'])
+
+    channel = bot.get_channel(channel_id)
+    guild = channel.guild
+    me = guild.me
+
     if players > 0:
-        await bot.change_presence(
-            activity=discord.Game(name=f"{players} player(s) in queue")
-            )
+        nickname = f"{bot.user.name} ({players} in queue)"
     else:
-        await bot.change_presence(
-            activity=None
-            )
+        nickname = None
+
+    await me.edit(nick=nickname)
 
 async def join_queue(bot: commands.Bot, user_id: int, channel_id: int):
     queue = get_state(channel_id)
@@ -140,7 +149,7 @@ async def join_queue(bot: commands.Bot, user_id: int, channel_id: int):
         return False
 
     queue['players'].append(user_id)
-    await update_presence(bot, channel_id)
+    await update_nickname(bot, channel_id)
     return True
 
 async def leave_queue(bot: commands.Bot, user_id: int, channel_id: int):
@@ -150,7 +159,7 @@ async def leave_queue(bot: commands.Bot, user_id: int, channel_id: int):
         return False
 
     queue['players'].remove(user_id)
-    await update_presence(bot, channel_id)
+    await update_nickname(bot, channel_id)
     return True
 
 class ButtonOnCooldown(commands.CommandError):
@@ -179,15 +188,16 @@ class MoreButtons(discord.ui.View):
 
         if len(queue['players']) < 6:
             await interaction.response.send_message(
-                "**Oops! __Don't Ping Queue__** until more players join, ideally 10 (5v5).\n"
-                "Ask first if you want to start with less players (3v3, 4v4).",
+                ":exclamation:**Don't Ping Queue yet**\n\n"
+                "Aim for 10 players (5v5) first before you Ping Queue.\n"
+                "If you want to start with less players (3v3, 4v4), ask the queue first.",
                 ephemeral=True)
             return
 
         retry_after = ping_cd.update_rate_limit(interaction)
         if retry_after:
             minutes = int(retry_after // 60)
-            await interaction.response.send_message(f"Ping is on cooldown. Try again in {minutes} minutes.", ephemeral=True)
+            await interaction.response.send_message(f"Ping is on cooldown. Try again in {minutes} minutes. :hourglass_flowing_sand:", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -200,16 +210,16 @@ class MoreButtons(discord.ui.View):
                               "Gather in VC and make teams! :sound:",
                               allowed_mentions=discord.AllowedMentions(users=False))
 
-        await interaction.followup.send(f"**<@{interaction.user.id}> has pinged everyone in the queue!**",
+        await interaction.followup.send(f"**<@{interaction.user.id}> has pinged everyone in the queue! :bell:**",
                                         allowed_mentions=discord.AllowedMentions(users=True))
 
-    @discord.ui.button(label="Map Vote", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="Map Vote", style=discord.ButtonStyle.blurple, emoji="\U0001f5fa")
     async def map_vote_button(self, interaction, button):
-        await interaction.response.send_message("Map vote coming soon:tm:", ephemeral=True)
+        await interaction.response.send_message(":tools: Planned (tentative)", ephemeral=True)
 
-    @discord.ui.button(label="Scramble", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="Scramble", style=discord.ButtonStyle.blurple, emoji="\U0001f500")
     async def scramble_button(self, interaction, button):
-        await interaction.response.send_message("Scramble coming soon:tm:", ephemeral=True)
+        await interaction.response.send_message(":tools: Planned (tentative)", ephemeral=True)
 
 # Main set of buttons, for joining/leaving queue and guide
 class MainButtons(discord.ui.View):
@@ -257,7 +267,7 @@ class MainButtons(discord.ui.View):
     @discord.ui.button(label="How to Play", style=discord.ButtonStyle.blurple, emoji="\U0001f5d2", custom_id='persistent_view:how_to_play')
     async def how_to_play_button(self, interaction, button):
         how_to_play_embed = discord.Embed(
-            title="How to Play a PUG",
+            title=":notepad_spiral: How to Play a PUG",
             description="",
             colour=0x5865F2
             )
@@ -280,8 +290,8 @@ class MainButtons(discord.ui.View):
             )
 
         how_to_play_field5 = (
-            "5. Have fun! Remember to **`/leave`** when you're finished **so others can play too**.\n\n"
-            "Use **`/help pug`** for the full list of commands."
+            "5. **Have fun!** Remember to **`/leave`** when you're finished **so others can play too**.\n\n"
+            ":scroll: Use **`/help pug`** for the full list of commands."
             )
 
         how_to_play_embed.add_field(name="", value=how_to_play_field1, inline=False)
@@ -361,7 +371,7 @@ class Pug(commands.Cog):
             return
 
         queue['players'].remove(player.id)
-        await update_presence(self.bot, interaction.channel_id)
+        await update_nickname(self.bot, interaction.channel_id)
 
         await interaction.response.send_message(
             f"<@{interaction.user.id}> has removed <@{player.id}> from the queue -----> **{len(queue['players'])} player(s) in queue**\n",
@@ -370,7 +380,9 @@ class Pug(commands.Cog):
         # Refresh the panel
         await refresh_panel(interaction.channel_id)
 
-        await player.send(f"<@{interaction.user.id}> has removed you from the queue.")
+        await player.send(
+            f"<@{interaction.user.id}> has removed you from the queue. :door:\n"
+            f"> <#{interaction.channel_id}>\n\n")
 
         # Restarts the timeout counter when a command is used on time
         reset_timeout_counter(interaction.channel_id, interaction)

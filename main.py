@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
@@ -36,6 +37,13 @@ intents.members = True
 class MatchManager(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
+    
+    async def reset_nickname(self):
+        await self.wait_until_ready()
+        
+        for guild in self.guilds:
+            me = guild.me
+            await me.edit(nick=None)
 
     async def setup_hook(self):
         for filename in os.listdir("./cogs"):

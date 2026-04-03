@@ -25,22 +25,22 @@ The tournament map selection process is as follows:
 
 ## PUG Queue
 
-The PUG queue system is simple and designed to have all the essential features available in a single embed, the PUG Panel. More features are planned for the future but these will be collapsed under the "Actions" button.
+The PUG queue system is simple and designed to have all the essential features available in a single embed, the **PUG Panel**. More features are planned for the future and these will be available from the "Actions" button.
 
 Players can currently:
 - Join and leave a queue
 - See who is currently queued
 - Ping the queue (with cooldown) when enough players are ready
 - Receive a DM notification to gather in voice and form teams
-- Expand the PUG Panel with the Actions button to access additional tools
+- Expand the PUG Panel with the Actions button to access bonus options
 
 **PUG Panel Actions Button Menu**
 - **Ping Queue**
   - DM players in the queue.
-- **Map Vote** (Tentative)
-  - Initiate map voting for PUG.
-- **Scramble** (Tentative)
-  - Scramble the queued players into two teams.
+- **Map Vote** - Planned (tentative)
+  - Start a map vote for the PUG.
+- **Scramble** - Planned (tentative)
+  - Randomize queued players into two teams.
 
 ---
 
@@ -82,12 +82,15 @@ To host the **ANP Match Manager** bot yourself, follow these steps:
    - **`TEAM_ROLES`** - Team names, clan tags, roles etc.
    - **`INFO`** - Tournament name, start date, map pools etc.
 
-4. **Configure Your Commands**
+4. **Manage Permissons**
+   - The bot requires the "Manage Nickname" permission to automatically update its nickname to reflect the number of players in the PUG queue.
+
+5. **Configure Your Commands**
    - You may only want one of the two major functions of this bot. You can restrict usage of the bot's commands to channels, roles, and users.
    - Go to the following settings and edit the commands accordingly:
      - **Server Settings** -> **Apps** -> **Integrations** -> **Command Permissions**
 
-5. **Run the Bot**
+6. **Run the Bot**
 
 ---
 

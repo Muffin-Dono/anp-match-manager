@@ -28,8 +28,8 @@ class Help(commands.Cog):
             "- **`/remove`** - Remove a player from the PUG queue.\n\n"
             "**PUG Panel Actions Menu**\n"
             "- **Ping Queue** - DM players in queue - ONLY when enough (usually 10) have joined!\n"
-            "- **Map Vote** - Initiate map voting for PUG. Coming soon:tm:.\n"
-            "- **Scramble** - Scramble the queued players into two teams. Coming soon:tm:.")
+            "- **Map Vote** - Start a map vote for the PUG. Planned - tentative.\n"
+            "- **Scramble** - Randomize queued players into two teams. Planned - tentative.")
         pug_embed.add_field(name="", value=pug_embed_field, inline=False)
 
         pug_embed.set_footer(text="Created by Muffin-Dono")
