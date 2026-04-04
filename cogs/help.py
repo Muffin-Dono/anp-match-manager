@@ -27,7 +27,7 @@ class Help(commands.Cog):
             "- **`/leave`** - Leave the PUG queue.\n"
             "- **`/remove`** - Remove a player from the PUG queue.\n\n"
             "**PUG Panel Actions Menu**\n"
-            "- **Ping Queue** - DM players in queue - ONLY when enough (usually 10) have joined!\n"
+            "- **Ping Queue** - DM players in queue - usually when 10 players have joined.\n"
             "- **Map Vote** - Start a map vote for the PUG. Planned - tentative.\n"
             "- **Scramble** - Randomize queued players into two teams. Planned - tentative.")
         pug_embed.add_field(name="", value=pug_embed_field, inline=False)

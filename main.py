@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 
 # Load environment variables including discord token and server ID(s)
 load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = int(os.getenv("DISCORD_GUILD"))
+token = os.getenv("DISCORD_TOKEN")
+server = int(os.getenv("DISCORD_GUILD"))
 
 # Log errors/debug info
 try:
@@ -44,6 +44,7 @@ class MatchManager(commands.Bot):
         for guild in self.guilds:
             me = guild.me
             await me.edit(nick=None)
+            print("Nickname successfully reset")
 
     async def setup_hook(self):
         for filename in os.listdir("./cogs"):
@@ -57,14 +58,14 @@ class MatchManager(commands.Bot):
         
         asyncio.create_task(self.reset_nickname())
         
-        # guild = discord.Object(id=GUILD_ID)
+        # guild = discord.Object(id=server)
         
         # # Clear command tree
         # self.tree.clear_commands(guild=guild)
         
         # Global sync
         synced = await self.tree.sync()
-        print(f"Synced {len(synced)} commands to guild {GUILD_ID}")
+        print(f"Synced {len(synced)} commands to guild {server}")
 
 bot = MatchManager()
-bot.run(TOKEN)
+bot.run(token)

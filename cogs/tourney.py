@@ -58,6 +58,8 @@ async def timeout_clear(channel_id, interaction):
         timeout_tasks.pop(channel_id, None)
         await interaction.followup.send(
             f"Map selection has timed out after {TIMEOUT_DURATION/(60*60)} hour(s) of inactivity and has been cleared.")
+        
+        await clear_timeout(channel_id)
 
     except asyncio.CancelledError:
         pass
