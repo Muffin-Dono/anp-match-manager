@@ -96,7 +96,7 @@ class MainButtons(discord.ui.View):
             await interaction.response.send_message("You are already in the queue.", ephemeral=True)
             return
         elif result == "queue is full":
-            await interaction.response.send_message("The queue is full (30 players). Please wait for a spot to open :tea:.", ephemeral=True)
+            await interaction.response.send_message("The queue is full (25 players). Please wait for a spot to open :tea:.", ephemeral=True)
             return
         elif result == "added":
             await interaction.response.send_message(
@@ -265,8 +265,6 @@ class Pug(commands.Cog):
 
         embed.set_author(name="Matcha", url="https://github.com/Muffin-Dono/matcha")
 
-        embed.add_field(name="", value="\u00AD", inline=False)
-
         if expired == 1:
             embed.add_field(
                 name="",
@@ -429,7 +427,7 @@ class Pug(commands.Cog):
         if user_id in queue['players']:
             return "already queued"
 
-        if len(queue['players']) >= 30:
+        if len(queue['players']) >= 25:
             return "queue is full"
 
         queue['players'].append(user_id)
@@ -491,7 +489,7 @@ class Pug(commands.Cog):
             await interaction.response.send_message("You are already in the queue.", ephemeral=True)
             return
         elif result == "queue is full":
-            await interaction.response.send_message("The queue is full (30 players). Please wait for a spot to open :tea:.", ephemeral=True)
+            await interaction.response.send_message("The queue is full (25 players). Please wait for a spot to open :tea:.", ephemeral=True)
             return
         elif result == "added":
             await interaction.response.send_message(
